@@ -6,6 +6,8 @@
 #include <sys/mman.h>
 
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
+#include "fractional-scale-v1-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 #include "state.h"
 #include "render.h"
@@ -23,6 +25,19 @@ static const struct wl_buffer_listener wl_buffer_listener = {
 };
 
 static void
+fractional_scale_preferred_scale(void *data,
+		struct wp_fractional_scale_v1 *wp_fractional_scale_v1,
+		uint32_t scale)
+{
+	struct state *state = data;
+	state->scale = (double)scale / 120.0;
+}
+
+static const struct wp_fractional_scale_v1_listener fractional_scale_listener = {
+	.preferred_scale = fractional_scale_preferred_scale,
+};
+
+static void
 zwlr_layer_surface_v1_configure(void *data,
 		struct zwlr_layer_surface_v1 *zwlr_layer_surface_v1,
 		uint32_t serial, uint32_t width, uint32_t height)
@@ -32,9 +47,15 @@ zwlr_layer_surface_v1_configure(void *data,
 	state->height = height;
 	zwlr_layer_surface_v1_ack_configure(zwlr_layer_surface_v1, serial);
 
+	if (state->wp_viewport) {
+		wp_viewport_set_destination(state->wp_viewport, state->width, state->height);
+	}
+
 	struct wl_buffer *buffer = create_buffer(state);
-	wl_surface_attach(state->wl_surface, buffer, 0, 0);
-	wl_surface_commit(state->wl_surface);
+	if (buffer) {
+		wl_surface_attach(state->wl_surface, buffer, 0, 0);
+		wl_surface_commit(state->wl_surface);
+	}
 }
 
 static const struct zwlr_layer_surface_v1_listener zwlr_layer_surface_v1_listener = {
@@ -59,6 +80,12 @@ registry_global(void *data, struct wl_registry *wl_registry,
 	} else if (strcmp(interface, wl_output_interface.name) == 0) {
 		state->wl_output = wl_registry_bind(
 			wl_registry, name, &wl_output_interface, 4);
+	} else if (strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0) {
+		state->wp_fractional_scale_manager_v1 = wl_registry_bind(
+			wl_registry, name, &wp_fractional_scale_manager_v1_interface, 1);
+	} else if (strcmp(interface, wp_viewporter_interface.name) == 0) {
+		state->wp_viewporter = wl_registry_bind(
+			wl_registry, name, &wp_viewporter_interface, 1);
 	}
 }
 
@@ -81,12 +108,23 @@ wayland_init(struct state *state)
 	wl_display_roundtrip(state->wl_display);
 
 	state->wl_surface = wl_compositor_create_surface(state->wl_compositor);
+	if (state->wp_fractional_scale_manager_v1) {
+		state->wp_fractional_scale_v1 = wp_fractional_scale_manager_v1_get_fractional_scale(
+			state->wp_fractional_scale_manager_v1, state->wl_surface);
+		wp_fractional_scale_v1_add_listener(
+			state->wp_fractional_scale_v1, &fractional_scale_listener, state);
+	}
+	if (state->wp_viewporter) {
+		state->wp_viewport = wp_viewporter_get_viewport(
+			state->wp_viewporter, state->wl_surface);
+	}
+
 	state->zwlr_layer_surface_v1 = zwlr_layer_shell_v1_get_layer_surface(
 		state->zwlr_layer_shell_v1,
 		state->wl_surface,
 		state->wl_output,
 		ZWLR_LAYER_SHELL_V1_LAYER_TOP,
-		"ergo"
+		"figbar"
 	);
 	zwlr_layer_surface_v1_set_anchor(state->zwlr_layer_surface_v1,
 		ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT | state->anchor
@@ -102,15 +140,20 @@ wayland_init(struct state *state)
 struct wl_buffer *
 create_buffer(struct state *state)
 {
-	int stride = state->width * 4;
-	int size = stride * state->height;
+	int buf_width = (int)(state->width * state->scale + 0.5);
+	int buf_height = (int)(state->height * state->scale + 0.5);
+	if (buf_width <= 0 || buf_height <= 0) {
+		return NULL;
+	}
+
+	int stride = buf_width * 4;
+	int size = stride * buf_height;
 
 	int fd = allocate_shm_file(size);
 	if (fd == -1) {
 		return NULL;
 	}
 
-	// uint32_t 
 	void *data = mmap(NULL, size,
 			PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (data == MAP_FAILED) {
@@ -120,7 +163,7 @@ create_buffer(struct state *state)
 
 	struct wl_shm_pool *pool = wl_shm_create_pool(state->wl_shm, fd, size);
 	struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0,
-			state->width, state->height, stride, WL_SHM_FORMAT_ARGB8888);
+			buf_width, buf_height, stride, WL_SHM_FORMAT_ARGB8888);
 	wl_shm_pool_destroy(pool);
 	close(fd);
 

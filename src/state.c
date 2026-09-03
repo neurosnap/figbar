@@ -71,13 +71,18 @@ void parse_input(struct state *state, char *input) {
 struct state *
 state_init(int argc, char *argv[]) {
   struct state *state = malloc(sizeof(struct state));
+	state->scale = 1.0;
+	state->wp_fractional_scale_manager_v1 = NULL;
+	state->wp_fractional_scale_v1 = NULL;
+	state->wp_viewporter = NULL;
+	state->wp_viewport = NULL;
 	state->font = "monospace 16";
 	state->normal_bg = state->select_fg = 0x000000ff;
 	state->normal_fg = state->select_bg = 0xffffffff;
 	state->anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
 	state->right = false;
 	state->item_count = 0;
-	const char *usage = "Usage: ergo [-br] [-f font] [-N color] [-n color] [-S color] [-s color]\n";
+	const char *usage = "Usage: figbar [-br] [-f font] [-N color] [-n color] [-S color] [-s color]\n";
 	int opt;
 	while ((opt = getopt(argc, argv, "hbrf:N:n:S:s:")) != -1) {
 		switch (opt) {

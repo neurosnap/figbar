@@ -14,7 +14,12 @@ struct state {
 	struct wl_surface *wl_surface;
 	struct zwlr_layer_shell_v1 *zwlr_layer_shell_v1;
 	struct zwlr_layer_surface_v1 *zwlr_layer_surface_v1;
+	struct wp_fractional_scale_manager_v1 *wp_fractional_scale_manager_v1;
+	struct wp_fractional_scale_v1 *wp_fractional_scale_v1;
+	struct wp_viewporter *wp_viewporter;
+	struct wp_viewport *wp_viewport;
 
+	double scale;
 	bool right;
 	int width, height;
 	uint32_t normal_bg, normal_fg, select_bg, select_fg;

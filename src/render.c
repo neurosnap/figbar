@@ -20,21 +20,28 @@ cairo_set_source_u32(cairo_t *cairo, uint32_t color) {
 void
 render(void *data, struct state *state)
 {
+	int buf_width = (int)(state->width * state->scale + 0.5);
+	int buf_height = (int)(state->height * state->scale + 0.5);
+	if (buf_width <= 0 || buf_height <= 0) {
+		return;
+	}
+
 	int *width_array = malloc(state->item_count * sizeof(int));
 	int width = 0;
-	int height;
+	int height = 0;
 	int i;
 
-	int stride = state->width * 4;
+	int stride = buf_width * 4;
 
 	cairo_surface_t *surface = cairo_image_surface_create_for_data(
-	  data,
+		data,
 		CAIRO_FORMAT_ARGB32,
-		state->width,
-		state->height,
+		buf_width,
+		buf_height,
 		stride
 	);
 	cairo_t *cairo = cairo_create(surface);
+	cairo_scale(cairo, state->scale, state->scale);
 
 	cairo_set_antialias(cairo, CAIRO_ANTIALIAS_BEST);
 	cairo_set_source_u32(cairo, state->normal_bg);
@@ -80,5 +87,8 @@ render(void *data, struct state *state)
 	}
 
 	g_object_unref(layout);
+	cairo_destroy(cairo);
+	cairo_surface_destroy(surface);
+	free(width_array);
 }
 

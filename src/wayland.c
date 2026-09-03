@@ -58,8 +58,18 @@ zwlr_layer_surface_v1_configure(void *data,
 	}
 }
 
+static void
+zwlr_layer_surface_v1_closed(void *data,
+		struct zwlr_layer_surface_v1 *zwlr_layer_surface_v1)
+{
+	(void)data;
+	zwlr_layer_surface_v1_destroy(zwlr_layer_surface_v1);
+	exit(EXIT_SUCCESS);
+}
+
 static const struct zwlr_layer_surface_v1_listener zwlr_layer_surface_v1_listener = {
-	.configure = zwlr_layer_surface_v1_configure
+	.configure = zwlr_layer_surface_v1_configure,
+	.closed = zwlr_layer_surface_v1_closed,
 };
 
 
@@ -89,8 +99,18 @@ registry_global(void *data, struct wl_registry *wl_registry,
 	}
 }
 
+static void
+registry_global_remove(void *data, struct wl_registry *wl_registry,
+		uint32_t name)
+{
+	(void)data;
+	(void)wl_registry;
+	(void)name;
+}
+
 static const struct wl_registry_listener wl_registry_listener = {
 	.global = registry_global,
+	.global_remove = registry_global_remove,
 };
 
 void

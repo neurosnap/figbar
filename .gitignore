@@ -1,0 +1,9 @@
+# Output binaries
+/figbar
+
+# Generated Wayland protocols from wayland-scanner
+src/*-client-protocol.h
+src/*-protocol.c
+
+# Release archives
+*.tar.gz

@@ -1,5 +1,6 @@
 const std = @import("std");
 const State = @import("state.zig");
+const wayland = @import("wayland.zig");
 
 const c = @cImport({
     @cDefine("_FORTIFY_SOURCE", "0");
@@ -16,6 +17,7 @@ pub fn main(init: std.process.Init) !void {
     var iter = args.iterate();
     var state: State = .init();
     try state.parse_args(&iter);
+    try wayland.wayland_init(&state);
 
     var stdin_buffer: [1024]u8 = undefined;
     var stdin_file_reader: std.Io.File.Reader = .init(

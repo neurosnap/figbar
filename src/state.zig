@@ -1,4 +1,7 @@
 const std = @import("std");
+const c = @import("c.zig").c;
+
+
 
 pub const State = @This();
 
@@ -19,6 +22,9 @@ normal_bg: u32 = 0x000000ff,
 select_bg: u32 = 0x000000ff,
 normal_fg: u32 = 0xffffffff,
 select_fg: u32 = 0xffffffff,
+
+wl_display: ?*c.wl_display = null,
+wl_registry: ?*c.wl_registry = null,
 // scale: uint8 = 1.0,
 // wp_fractional_scale_manager_v1 = null,
 // wp_fractional_scale_v1 = null,

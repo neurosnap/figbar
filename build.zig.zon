@@ -1,0 +1,12 @@
+.{
+    .name = .figbar,
+    .version = "0.16.0",
+    .dependencies = .{
+        .wayland = .{
+            .url = "git+https://codeberg.org/ifreund/zig-wayland#23839e41161de025d71ce082561ecba1c5331281",
+            .hash = "wayland-0.7.0-dev-lQa1kl38AQC-kQolS5D4jV1GJ2rH2jv1VWHr14YLVnyn",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0xd402c2daeffbd71e,
+}

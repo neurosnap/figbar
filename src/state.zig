@@ -1,35 +1,39 @@
 const std = @import("std");
-const c = @import("c.zig").c;
-
-
+const wayland = @import("wayland");
+const wl = wayland.client.wl;
+const zwlr = wayland.client.zwlr;
+const wp = wayland.client.wp;
 
 pub const State = @This();
-
-const Position = enum {
-    top,
-    bottom,
-};
 
 const Align = enum {
     left,
     right,
 };
 
-anchor: Position = .top,
-valign: Align = .left,
+anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true },
+valign: zwlr.LayerSurfaceV1.Anchor = .{ .left = true },
 font: []const u8 = "monospace 16",
 normal_bg: u32 = 0x000000ff,
 select_bg: u32 = 0x000000ff,
 normal_fg: u32 = 0xffffffff,
 select_fg: u32 = 0xffffffff,
 
-wl_display: ?*c.wl_display = null,
-wl_registry: ?*c.wl_registry = null,
-// scale: uint8 = 1.0,
-// wp_fractional_scale_manager_v1 = null,
-// wp_fractional_scale_v1 = null,
-// wp_viewporter = null,
-// wp_viewport = null,
+wl_display: ?*wl.Display = null,
+wl_registry: ?*wl.Registry = null,
+wl_compositor: ?*wl.Compositor = null,
+wl_surface: ?*wl.Surface = null,
+wl_shm: ?*wl.Shm = null,
+wl_output: ?*wl.Output = null,
+zwlr_layer_shell_v1: ?*zwlr.LayerShellV1 = null,
+zwlr_layer_surface_v1: ?*zwlr.LayerSurfaceV1 = null,
+wp_fractional_scale_manager_v1: ?*wp.FractionalScaleManagerV1 = null,
+wp_fraction_scale_v1: ?*wp.FractionalScaleV1 = null,
+wp_viewporter: ?*wp.Viewporter = null,
+wp_viewport: ?*wp.Viewport = null,
+scale: f64 = 1.0,
+width: u32 = 80,
+height: u32 = 24,
 // item_count: usize = 0,
 
 pub fn init() State {
@@ -40,9 +44,11 @@ pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
     _ = arg_iter.next(); // cmd name
     while (arg_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "-b")) {
-            state.anchor = .bottom;
+            state.anchor.top = false;
+            state.anchor.bottom = true;
         } else if (std.mem.eql(u8, arg, "-r")) {
-            state.valign = .right;
+            state.valign.left = false;
+            state.valign.right = true;
         } else if (std.mem.eql(u8, arg, "-f")) {
             if (arg_iter.next()) |font| {
                 state.font = font;
@@ -58,8 +64,8 @@ pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
         }
     }
     std.debug.print(
-        "state anchor={s} valign={s} font={s} normal_bg={x} normal_fg={x} select_bg={x} select_fg={x}\n",
-        .{ @tagName(state.anchor), @tagName(state.valign), state.font, state.normal_bg, state.normal_fg, state.select_bg, state.select_fg },
+        "state font={s} normal_bg={x} normal_fg={x} select_bg={x} select_fg={x}\n",
+        .{ state.font, state.normal_bg, state.normal_fg, state.select_bg, state.select_fg },
     );
 }
 
@@ -73,17 +79,3 @@ fn parse_hex_str(hex_str_opt: ?[]const u8) !u32 {
 pub fn parse_line(_: *State, line: []const u8) !void {
     std.debug.print("line: {s}\n", .{line});
 }
-
-// struct state *state = malloc(sizeof(struct state));
-// state->scale = 1.0;
-// state->wp_fractional_scale_manager_v1 = NULL;
-// state->wp_fractional_scale_v1 = NULL;
-// state->wp_viewporter = NULL;
-// state->wp_viewport = NULL;
-// state->font = "monospace 16";
-// state->normal_bg = state->select_fg = 0x000000ff;
-// state->normal_fg = state->select_bg = 0xffffffff;
-// state->anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
-// state->right = false;
-// state->item_count = 0;
-// const char *usage = "Usage: figbar [-br] [-f font] [-N color] [-n color] [-S color] [-s color]\n";

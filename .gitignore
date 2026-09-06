@@ -11,3 +11,4 @@ src/*-protocol.c
 # Zig build artifacts
 .zig-cache/
 zig-out/
+zig-pkg/

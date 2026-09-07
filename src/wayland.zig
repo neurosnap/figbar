@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const zwlr = wayland.client.zwlr;
@@ -17,7 +18,7 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *St
                 state.wl_shm = registry.bind(global.name, wl.Shm, 1) catch return;
             } else if (std.mem.orderZ(u8, global.interface, wl.Output.interface.name) == .eq) {
                 state.wl_output = registry.bind(global.name, wl.Output, 4) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, wl.Output.interface.name) == .eq) {
+            } else if (std.mem.orderZ(u8, global.interface, zwlr.LayerShellV1.interface.name) == .eq) {
                 state.zwlr_layer_shell_v1 = registry.bind(global.name, zwlr.LayerShellV1, 4) catch return;
             } else if (std.mem.orderZ(u8, global.interface, wp_fs.interface.name) == .eq) {
                 state.wp_fractional_scale_manager_v1 = registry.bind(global.name, wp_fs, 1) catch return;
@@ -44,6 +45,29 @@ fn fractionalScaleListener(
     }
 }
 
+fn layerSurfaceListener(
+    ls: *zwlr.LayerSurfaceV1,
+    event: zwlr.LayerSurfaceV1.Event,
+    state: *State,
+) void {
+    switch (event) {
+        .configure => |ev| {
+            ls.ackConfigure(ev.serial);
+            // ev.width and ev.height are the compositor-assigned dimensions (0 means client decides)
+            if (ev.width != 0) state.width = ev.width;
+            if (ev.height != 0) state.height = ev.height;
+            if (state.wp_viewport) |vp| {
+                vp.setDestination(@intCast(state.width), @intCast(state.height));
+            }
+            // TODO: create buffer
+            state.wl_surface.?.commit();
+        },
+        .closed => {
+            // compositor is removing our surface
+        },
+    }
+}
+
 pub fn wayland_init(state: *State) !void {
     const display = try wl.Display.connect(null);
     state.wl_display = display;
@@ -52,7 +76,9 @@ pub fn wayland_init(state: *State) !void {
     registry.setListener(*State, registryListener, state);
     _ = display.roundtrip();
 
-    const surface = try wl.Compositor.createSurface(state.wl_compositor.?);
+    assert(state.wl_compositor != null);
+
+    const surface = try state.wl_compositor.?.createSurface();
     state.wl_surface = surface;
     if (state.wp_fractional_scale_manager_v1) |wpfs| {
         const fs = try wpfs.getFractionalScale(surface);
@@ -63,18 +89,45 @@ pub fn wayland_init(state: *State) !void {
     if (state.wp_viewporter) |vp| {
         state.wp_viewport = try vp.getViewport(surface);
     }
+
+    assert(state.zwlr_layer_shell_v1 != null);
     const ls = try state.zwlr_layer_shell_v1.?.getLayerSurface(
         surface,
         state.wl_output,
         .top,
         "figbar",
     );
+    state.zwlr_layer_surface_v1 = ls;
     ls.setAnchor(state.anchor);
     ls.setSize(state.width, state.height);
-    ls.setExclusiveZone(state.height);
+    ls.setExclusiveZone(@intCast(state.height));
+    ls.setListener(*State, layerSurfaceListener, state);
 
     surface.commit();
     _ = display.roundtrip();
+}
 
-	// zwlr_layer_surface_v1_add_listener(state->zwlr_layer_surface_v1, &zwlr_layer_surface_v1_listener, state);
+fn create_buffer(state: *State) wl.Buffer {
+    const buf_width: i32 = @intFromFloat(state.width * state.scale + 0.5);
+    const buf_height: i32 = @intFromFloat(state.height * state.scale + 0.5);
+    if (buf_width <= 0 or buf_height <= 0) return error.InvalidSize;
+
+    const stride = buf_width * 4;
+    const size: usize = @intCast(stride * buf_height);
+
+    const fd = try allocateShmFile(size);
+    defer std.posix.close(fd);
+
+    const data = std.posix.mmap(null, size, std.posix.PROT.READ | std.posix.PROT.WRITE, .{ .TYPE = .SHARED }, fd, 0);
+    defer std.posix.munmap(data);
+
+    const pool = try state.wl_shm.?.createPool(fd, @intCast(size));
+    defer pool.destroy();
+
+    const buffer = try pool.createBuffer(0, buf_width, buf_height, stride, .argb8888);
+
+    render(data, state);
+
+    buffer.setListener(?*anyopaque, bufferReleaseListener);
+    return buffer;
 }

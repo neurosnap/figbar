@@ -119,16 +119,16 @@ pub fn wayland_init(state: *State) !void {
     _ = display.roundtrip();
 }
 
-fn create_buffer(state: *State) !*wl.Buffer {
-    const buf_width: i32 = @intFromFloat(state.width * state.scale + 0.5);
-    const buf_height: i32 = @intFromFloat(state.height * state.scale + 0.5);
+pub fn create_buffer(state: *State) !*wl.Buffer {
+    const buf_width: i32 = @intFromFloat(@as(f64, @floatFromInt(state.width)) * state.scale + 0.5);
+    const buf_height: i32 = @intFromFloat(@as(f64, @floatFromInt(state.height)) * state.scale + 0.5);
     if (buf_width <= 0 or buf_height <= 0) return error.InvalidSize;
 
     const stride = buf_width * 4;
     const size: usize = @intCast(stride * buf_height);
 
     const fd = try allocateShmFile(size);
-    _ = std.c.close(fd);
+    defer _ = std.c.close(fd); // close after mmap and pool creation
 
     const data = try std.posix.mmap(
         null,

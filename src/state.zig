@@ -3,21 +3,19 @@ const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const zwlr = wayland.client.zwlr;
 const wp = wayland.client.wp;
+const c = @import("c.zig").c;
 
 pub const State = @This();
 
-const Align = enum {
-    left,
-    right,
-};
+pub const max_items = 1024;
 
 anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true },
 valign: zwlr.LayerSurfaceV1.Anchor = .{ .left = true },
 font: []const u8 = "monospace 16",
 normal_bg: u32 = 0x000000ff,
-select_bg: u32 = 0x000000ff,
+select_bg: u32 = 0xffffffff,
 normal_fg: u32 = 0xffffffff,
-select_fg: u32 = 0xffffffff,
+select_fg: u32 = 0x000000ff,
 
 wl_display: ?*wl.Display = null,
 wl_registry: ?*wl.Registry = null,
@@ -32,16 +30,42 @@ wp_fraction_scale_v1: ?*wp.FractionalScaleV1 = null,
 wp_viewporter: ?*wp.Viewporter = null,
 wp_viewport: ?*wp.Viewport = null,
 scale: f64 = 1.0,
-width: u32 = 80,
-height: u32 = 24,
+width: u32 = 0,
+height: u32 = 0,
+items: [max_items][]const u8 = undefined,
 item_count: usize = 0,
 
 pub fn init() State {
     return .{};
 }
 
+fn getFontHeight(fontname: []const u8) u32 {
+    var buf: [256]u8 = undefined;
+    const font_z = std.fmt.bufPrintZ(&buf, "{s}", .{fontname}) catch return 16;
+
+    const fontmap = c.pango_cairo_font_map_get_default();
+    const ctx = c.pango_font_map_create_context(fontmap);
+    defer c.g_object_unref(ctx);
+    const desc = c.pango_font_description_from_string(font_z.ptr);
+    defer c.pango_font_description_free(desc);
+    const font = c.pango_font_map_load_font(fontmap, ctx, desc);
+    defer c.g_object_unref(font);
+    const metrics = c.pango_font_get_metrics(font, null);
+    defer c.pango_font_metrics_unref(metrics);
+    const height = c.pango_font_metrics_get_height(metrics);
+    return @intCast(@divTrunc(height, c.PANGO_SCALE));
+}
+
+fn parseColor(color: []const u8) ?u32 {
+    var s = color;
+    if (s.len > 0 and s[0] == '#') s = s[1..];
+    if (s.len != 6 and s.len != 8) return null;
+    const parsed = std.fmt.parseInt(u32, s, 16) catch return null;
+    return if (s.len == 6) (parsed << 8) | 0xff else parsed;
+}
+
 pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
-    _ = arg_iter.next(); // cmd name
+    _ = arg_iter.next(); // skip argv[0]
     while (arg_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "-b")) {
             state.anchor.top = false;
@@ -50,32 +74,73 @@ pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
             state.valign.left = false;
             state.valign.right = true;
         } else if (std.mem.eql(u8, arg, "-f")) {
-            if (arg_iter.next()) |font| {
-                state.font = font;
-            }
+            state.font = arg_iter.next() orelse return error.MissingArg;
         } else if (std.mem.eql(u8, arg, "-N")) {
-            state.normal_bg = try parse_hex_str(arg_iter.next());
+            const val = arg_iter.next() orelse return error.MissingArg;
+            state.normal_bg = parseColor(val) orelse {
+                std.debug.print("Invalid normal background color: {s}\n", .{val});
+                return error.InvalidColor;
+            };
         } else if (std.mem.eql(u8, arg, "-n")) {
-            state.normal_fg = try parse_hex_str(arg_iter.next());
+            const val = arg_iter.next() orelse return error.MissingArg;
+            state.normal_fg = parseColor(val) orelse {
+                std.debug.print("Invalid normal foreground color: {s}\n", .{val});
+                return error.InvalidColor;
+            };
         } else if (std.mem.eql(u8, arg, "-S")) {
-            state.select_bg = try parse_hex_str(arg_iter.next());
+            const val = arg_iter.next() orelse return error.MissingArg;
+            state.select_bg = parseColor(val) orelse {
+                std.debug.print("Invalid select background color: {s}\n", .{val});
+                return error.InvalidColor;
+            };
         } else if (std.mem.eql(u8, arg, "-s")) {
-            state.select_fg = try parse_hex_str(arg_iter.next());
+            const val = arg_iter.next() orelse return error.MissingArg;
+            state.select_fg = parseColor(val) orelse {
+                std.debug.print("Invalid select foreground color: {s}\n", .{val});
+                return error.InvalidColor;
+            };
+        } else {
+            std.debug.print("Usage: figbar [-br] [-f font] [-N color] [-n color] [-S color] [-s color]\n", .{});
+            return error.UnknownArg;
         }
     }
-    std.debug.print(
-        "state font={s} normal_bg={x} normal_fg={x} select_bg={x} select_fg={x}\n",
-        .{ state.font, state.normal_bg, state.normal_fg, state.select_bg, state.select_fg },
-    );
-}
 
-fn parse_hex_str(hex_str_opt: ?[]const u8) !u32 {
-    if (hex_str_opt) |hex_str| {
-        return try std.fmt.parseInt(u32, hex_str, 16);
+    // derive height from font metrics if not set
+    if (state.height == 0) {
+        state.height = getFontHeight(state.font) + 2;
     }
-    return error.MissingArgValue;
 }
 
-pub fn parse_line(_: *State, line: []const u8) !void {
-    std.debug.print("line: {s}\n", .{line});
+pub fn parse_line(state: *State, line: []const u8) !void {
+    // Strip trailing newline
+    var input = line;
+    if (input.len > 0 and input[input.len - 1] == '\n') {
+        input = input[0 .. input.len - 1];
+    }
+
+    state.item_count = 0;
+
+    // Split on '^', with '\^' as an escape for a literal '^'
+    var i: usize = 0;
+    var start: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '^') {
+            if (i > 0 and input[i - 1] == '\\') {
+                // escaped caret — would need in-place removal; for now just split
+                i += 1;
+                continue;
+            }
+            if (state.item_count < max_items) {
+                state.items[state.item_count] = input[start..i];
+                state.item_count += 1;
+            }
+            start = i + 1;
+        }
+        i += 1;
+    }
+    // last segment
+    if (state.item_count < max_items) {
+        state.items[state.item_count] = input[start..];
+        state.item_count += 1;
+    }
 }

@@ -1,25 +1,16 @@
 const std = @import("std");
 const State = @import("state.zig");
-const wayland = @import("wayland.zig");
-
-const c = @cImport({
-    @cDefine("_FORTIFY_SOURCE", "0");
-    @cInclude("stdio.h");
-    @cInclude("stdlib.h");
-    @cInclude("string.h");
-    @cInclude("state.h");
-    @cInclude("wayland.h");
-    @cInclude("viewporter-client-protocol.h");
-});
+const wayland_init = @import("wayland.zig").wayland_init;
+const create_buffer = @import("wayland.zig").create_buffer;
 
 pub fn main(init: std.process.Init) !void {
     const args = init.minimal.args;
     var iter = args.iterate();
     var state: State = .init();
     try state.parse_args(&iter);
-    try wayland.wayland_init(&state);
+    try wayland_init(&state);
 
-    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_buffer: [4096]u8 = undefined;
     var stdin_file_reader: std.Io.File.Reader = .init(
         .stdin(),
         init.io,
@@ -27,39 +18,28 @@ pub fn main(init: std.process.Init) !void {
     );
     const stdin = &stdin_file_reader.interface;
 
-    // while (true) {
-    if (try stdin.takeDelimiter('\n')) |line| {
-        try state.parse_line(line);
-    } else {
-        std.debug.print("end of stream with no input\n", .{});
+    const display = state.wl_display.?;
+
+    while (true) {
+        if (try stdin.takeDelimiter('\n')) |line| {
+            try state.parse_line(line);
+
+            if (state.wp_viewport) |vp| {
+                vp.setDestination(@intCast(state.width), @intCast(state.height));
+            }
+
+            const buffer = create_buffer(&state) catch null;
+            if (state.wl_surface) |surf| {
+                if (buffer) |buf| {
+                    surf.attach(buf, 0, 0);
+                    surf.damageBuffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+                }
+                surf.commit();
+            }
+        } else {
+            break; // EOF
+        }
+
+        if (display.dispatch() != .SUCCESS) break;
     }
-    // }
-
-    // const argc: c_int = @intCast(argv.len);
-
-    // const state = c.state_init(argc, @ptrCast(@constCast(argv.ptr)));
-    // if (state == null) {
-    //     return error.StateInitFailed;
-    // }
-
-    // var input: [c.BUFSIZ]u8 = undefined;
-
-    // while (true) {
-    //     if (c.fgets(&input, c.BUFSIZ, c.stdin)) |_| {
-    //         c.parse_input(state, &input);
-    //         if (state.*.wp_viewport) |vp| {
-    //             c.wp_viewport_set_destination(vp, state.*.width, state.*.height);
-    //         }
-    //         const buffer = c.create_buffer(state);
-    //         if (buffer) |buf| {
-    //             c.wl_surface_attach(state.*.wl_surface, buf, 0, 0);
-    //             c.wl_surface_damage_buffer(state.*.wl_surface, 0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
-    //             c.wl_surface_commit(state.*.wl_surface);
-    //         }
-    //     }
-
-    //     if (c.wl_display_dispatch(state.*.wl_display) == -1) {
-    //         break;
-    //     }
-    // }
 }

@@ -91,25 +91,6 @@ pub fn build(b: *std.Build) void {
     mod.linkSystemLibrary("pangocairo", .{});
     mod.linkSystemLibrary("rt", .{});
 
-    // Pull in generated protocol C files + existing C modules
-    mod.addCSourceFiles(.{
-        .files = &.{
-            "src/xdg-shell-protocol.c",
-            "src/wlr-layer-shell-unstable-v1-protocol.c",
-            "src/fractional-scale-v1-protocol.c",
-            "src/viewporter-protocol.c",
-            "src/shm.c",
-            "src/wayland.c",
-            "src/state.c",
-        },
-        .flags = &.{
-            "-Wall",
-            "-Wextra",
-            "-Wno-unused-parameter",
-            "-std=c99",
-        },
-    });
-
     const exe = b.addExecutable(.{
         .name = "figbar",
         .root_module = mod,

@@ -34,7 +34,7 @@ wp_viewport: ?*wp.Viewport = null,
 scale: f64 = 1.0,
 width: u32 = 80,
 height: u32 = 24,
-// item_count: usize = 0,
+item_count: usize = 0,
 
 pub fn init() State {
     return .{};

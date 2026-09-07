@@ -8,6 +8,7 @@ const wp = wayland.client.wp;
 const wp_fs = wp.FractionalScaleManagerV1;
 const wp_vp = wp.Viewporter;
 const State = @import("state.zig");
+const render = @import("render.zig");
 
 fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *State) void {
     switch (event) {
@@ -56,16 +57,27 @@ fn layerSurfaceListener(
             // ev.width and ev.height are the compositor-assigned dimensions (0 means client decides)
             if (ev.width != 0) state.width = ev.width;
             if (ev.height != 0) state.height = ev.height;
+
             if (state.wp_viewport) |vp| {
                 vp.setDestination(@intCast(state.width), @intCast(state.height));
             }
-            // TODO: create buffer
-            state.wl_surface.?.commit();
+
+            const buffer = create_buffer(state) catch null;
+            if (state.wl_surface) |surf| {
+                if (buffer) |buf| {
+                    surf.attach(buf, 0, 0);
+                }
+                surf.commit();
+            }
         },
         .closed => {
             // compositor is removing our surface
         },
     }
+}
+
+fn bufferReleaseListener(bf: *wl.Buffer, _: wl.Buffer.Event, _: *State) void {
+    bf.destroy();
 }
 
 pub fn wayland_init(state: *State) !void {
@@ -107,7 +119,7 @@ pub fn wayland_init(state: *State) !void {
     _ = display.roundtrip();
 }
 
-fn create_buffer(state: *State) wl.Buffer {
+fn create_buffer(state: *State) !*wl.Buffer {
     const buf_width: i32 = @intFromFloat(state.width * state.scale + 0.5);
     const buf_height: i32 = @intFromFloat(state.height * state.scale + 0.5);
     if (buf_width <= 0 or buf_height <= 0) return error.InvalidSize;
@@ -116,9 +128,16 @@ fn create_buffer(state: *State) wl.Buffer {
     const size: usize = @intCast(stride * buf_height);
 
     const fd = try allocateShmFile(size);
-    defer std.posix.close(fd);
+    _ = std.c.close(fd);
 
-    const data = std.posix.mmap(null, size, std.posix.PROT.READ | std.posix.PROT.WRITE, .{ .TYPE = .SHARED }, fd, 0);
+    const data = try std.posix.mmap(
+        null,
+        size,
+        .{ .READ = true, .WRITE = true },
+        .{ .TYPE = .SHARED },
+        fd,
+        0,
+    );
     defer std.posix.munmap(data);
 
     const pool = try state.wl_shm.?.createPool(fd, @intCast(size));
@@ -126,8 +145,19 @@ fn create_buffer(state: *State) wl.Buffer {
 
     const buffer = try pool.createBuffer(0, buf_width, buf_height, stride, .argb8888);
 
-    render(data, state);
+    render.render(data, state);
 
-    buffer.setListener(?*anyopaque, bufferReleaseListener);
+    buffer.setListener(*State, bufferReleaseListener, state);
     return buffer;
+}
+
+pub fn allocateShmFile(size: usize) !std.posix.fd_t {
+    const fd = try std.posix.memfd_create("figbar-shm", 0);
+    errdefer _ = std.c.close(fd);
+
+    if (std.c.ftruncate(fd, @intCast(size)) != 0) {
+        return error.FtruncateFailed;
+    }
+
+    return fd;
 }

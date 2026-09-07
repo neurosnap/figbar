@@ -101,7 +101,6 @@ pub fn build(b: *std.Build) void {
             "src/shm.c",
             "src/wayland.c",
             "src/state.c",
-            "src/render.c",
         },
         .flags = &.{
             "-Wall",

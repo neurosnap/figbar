@@ -8,7 +8,7 @@
   A minimal, duo-tone status bar for Wayland compositors with native fractional scaling support.
 </p>
 
-It requires the `zwlr_layer_shell_v1` protocol and works on any Wayland compositor supporting `wlr-layer-shell` (e.g. Sway, Hyprland, River, Wayfire, labwc, niri, etc.).
+It works on any Wayland compositor supporting `wlr-layer-shell` (e.g. Sway, Hyprland, River, Wayfire, labwc, niri, etc.).
 
 ## dependencies
 

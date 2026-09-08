@@ -107,65 +107,7 @@ def generate_line():
 
     return f"{ws}    {right_status}"
 
-def handle_click(event):
-    key = event.get("key")
-    btn = event.get("button", 1)
-    if not key:
-        return
-
-    if key.startswith("ws_"):
-        ws_name = key[3:]
-        subprocess.run(["swaymsg", "workspace", ws_name], stderr=subprocess.DEVNULL)
-    elif key == "vol":
-        if btn == 1:
-            subprocess.run(["pamixer", "-t"], stderr=subprocess.DEVNULL)
-        elif btn == 4:
-            subprocess.run(["pamixer", "-i", "5"], stderr=subprocess.DEVNULL)
-        elif btn == 5:
-            subprocess.run(["pamixer", "-d", "5"], stderr=subprocess.DEVNULL)
-    elif key == "brt":
-        if btn == 4:
-            subprocess.run(["brightnessctl", "set", "5%+"], stderr=subprocess.DEVNULL)
-        elif btn == 5:
-            subprocess.run(["brightnessctl", "set", "5%-"], stderr=subprocess.DEVNULL)
-
-def run_bidirectional():
-    import threading
-
-    proc = subprocess.Popen(
-        ["figbar", "-b", "-r", "-f", "JetBrainsMono Nerd Font 10.5",
-         "-N", "272822", "-n", "f8f8f2", "-S", "66d9ef", "-s", "272822"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
-    def read_clicks():
-        for line in proc.stdout:
-            try:
-                event = json.loads(line)
-                if event.get("event") == "click":
-                    handle_click(event)
-            except Exception:
-                pass
-
-    t = threading.Thread(target=read_clicks, daemon=True)
-    t.start()
-
-    try:
-        while proc.poll() is None:
-            proc.stdin.write(generate_line() + "\n")
-            proc.stdin.flush()
-            time.sleep(1)
-    except (BrokenPipeError, KeyboardInterrupt):
-        proc.terminate()
-
 def main():
-    if "--listen" in sys.argv:
-        run_bidirectional()
-        return
-
     try:
         while True:
             print(generate_line(), flush=True)

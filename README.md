@@ -8,6 +8,8 @@
   A minimal, duo-tone status bar for Wayland compositors with native fractional scaling support.
 </p>
 
+Figbar strives to be simple: `stdin` is the templated status text, `stdout` are the click events.
+
 It works on any Wayland compositor supporting `wlr-layer-shell` (e.g. Sway, Hyprland, River, Wayfire, labwc, niri, etc.).
 
 ## dependencies

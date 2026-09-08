@@ -9,6 +9,7 @@ pub fn main(init: std.process.Init) !void {
     var state: State = .init();
     try state.parse_args(&iter);
     try wayland_init(&state);
+    const display = state.wl_display.?;
 
     var stdin_buffer: [4096]u8 = undefined;
     var stdin_file_reader: std.Io.File.Reader = .init(
@@ -17,8 +18,6 @@ pub fn main(init: std.process.Init) !void {
         &stdin_buffer,
     );
     const stdin = &stdin_file_reader.interface;
-
-    const display = state.wl_display.?;
 
     while (true) {
         if (try stdin.takeDelimiter('\n')) |line| {

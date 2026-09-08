@@ -54,6 +54,7 @@ fn layerSurfaceListener(
     switch (event) {
         .configure => |ev| {
             ls.ackConfigure(ev.serial);
+            assert(state.wl_surface != null);
             // ev.width and ev.height are the compositor-assigned dimensions (0 means client decides)
             if (ev.width != 0) state.width = ev.width;
             if (ev.height != 0) state.height = ev.height;
@@ -88,9 +89,11 @@ pub fn wayland_init(state: *State) !void {
     registry.setListener(*State, registryListener, state);
     _ = display.roundtrip();
 
-    assert(state.wl_compositor != null);
+    const compositor = state.wl_compositor orelse return error.MissingWaylandCompositor;
+    _ = state.wl_shm orelse return error.MissingWaylandShm;
+    const layer_shell = state.zwlr_layer_shell_v1 orelse return error.MissingLayerShell;
 
-    const surface = try state.wl_compositor.?.createSurface();
+    const surface = try compositor.createSurface();
     state.wl_surface = surface;
     if (state.wp_fractional_scale_manager_v1) |wpfs| {
         const fs = try wpfs.getFractionalScale(surface);
@@ -102,8 +105,7 @@ pub fn wayland_init(state: *State) !void {
         state.wp_viewport = try vp.getViewport(surface);
     }
 
-    assert(state.zwlr_layer_shell_v1 != null);
-    const ls = try state.zwlr_layer_shell_v1.?.getLayerSurface(
+    const ls = try layer_shell.getLayerSurface(
         surface,
         state.wl_output,
         .top,
@@ -115,11 +117,23 @@ pub fn wayland_init(state: *State) !void {
     ls.setExclusiveZone(@intCast(state.height));
     ls.setListener(*State, layerSurfaceListener, state);
 
+    // Invariants: required Wayland objects must be fully configured before committing
+    assert(state.wl_display != null);
+    assert(state.wl_surface != null);
+    assert(state.zwlr_layer_surface_v1 != null);
+    if (state.wp_fraction_scale_v1 != null) {
+        assert(state.wp_viewport != null);
+    }
+
     surface.commit();
     _ = display.roundtrip();
 }
 
 pub fn create_buffer(state: *State) !*wl.Buffer {
+    const shm = state.wl_shm orelse return error.MissingWaylandShm;
+    assert(state.scale > 0.0);
+    assert(state.width > 0);
+    assert(state.height > 0);
     const buf_width: i32 = @intFromFloat(@as(f64, @floatFromInt(state.width)) * state.scale + 0.5);
     const buf_height: i32 = @intFromFloat(@as(f64, @floatFromInt(state.height)) * state.scale + 0.5);
     if (buf_width <= 0 or buf_height <= 0) return error.InvalidSize;
@@ -140,7 +154,7 @@ pub fn create_buffer(state: *State) !*wl.Buffer {
     );
     defer std.posix.munmap(data);
 
-    const pool = try state.wl_shm.?.createPool(fd, @intCast(size));
+    const pool = try shm.createPool(fd, @intCast(size));
     defer pool.destroy();
 
     const buffer = try pool.createBuffer(0, buf_width, buf_height, stride, .argb8888);

@@ -85,7 +85,7 @@ pub fn render(data: []u8, state: *State) void {
     for (state.items[0..state.item_count], 0..) |item, i| {
         var w: c_int = 0;
         var h: c_int = 0;
-        c.pango_layout_set_text(layout, item.ptr, @intCast(item.len));
+        c.pango_layout_set_text(layout, item.text.ptr, @intCast(item.text.len));
         c.pango_layout_get_pixel_size(layout, &w, &h);
         width_array[i] = w;
         total_width += w;
@@ -100,12 +100,14 @@ pub fn render(data: []u8, state: *State) void {
 
     const y = @divTrunc(@as(c_int, @intCast(state.height)) - max_text_height, 2);
 
-    // Second pass: render each item, alternating styles (normal vs selected highlight)
-    var select = false;
-    for (state.items[0..state.item_count], 0..) |item, i| {
-        c.pango_layout_set_text(layout, item.ptr, @intCast(item.len));
+    // Second pass: render each item according to item.select
+    for (state.items[0..state.item_count], 0..) |*item, i| {
+        item.x_start = x;
+        item.x_end = x + width_array[i];
 
-        if (select) {
+        c.pango_layout_set_text(layout, item.text.ptr, @intCast(item.text.len));
+
+        if (item.select) {
             // Draw highlight background rectangle for selected item
             cairoSetSourceU32(cairo, state.select_bg);
             c.cairo_rectangle(cairo, @floatFromInt(x), 0, @floatFromInt(width_array[i]), @floatFromInt(state.height));
@@ -113,10 +115,8 @@ pub fn render(data: []u8, state: *State) void {
 
             // Set foreground text color for selected item
             cairoSetSourceU32(cairo, state.select_fg);
-            select = false;
         } else {
             // Set standard text color for normal item
-            select = true;
             cairoSetSourceU32(cairo, state.normal_fg);
         }
 
@@ -124,6 +124,42 @@ pub fn render(data: []u8, state: *State) void {
         c.pango_cairo_show_layout(cairo, layout);
 
         // Advance horizontal pen position by item width
+        x += width_array[i];
+    }
+}
+
+pub fn layoutItems(state: *State) void {
+    const fontmap = c.pango_cairo_font_map_get_default();
+    const ctx = c.pango_font_map_create_context(fontmap);
+    defer c.g_object_unref(ctx);
+
+    const layout = c.pango_layout_new(ctx);
+    defer c.g_object_unref(layout);
+
+    if (state.font_desc) |desc| {
+        c.pango_layout_set_font_description(layout, desc);
+    }
+
+    var width_array: [State.max_items]c_int = undefined;
+    var total_width: c_int = 0;
+
+    for (state.items[0..state.item_count], 0..) |item, i| {
+        var w: c_int = 0;
+        var h: c_int = 0;
+        c.pango_layout_set_text(layout, item.text.ptr, @intCast(item.text.len));
+        c.pango_layout_get_pixel_size(layout, &w, &h);
+        width_array[i] = w;
+        total_width += w;
+    }
+
+    var x: c_int = if (state.valign.right)
+        @as(c_int, @intCast(state.width)) - total_width
+    else
+        0;
+
+    for (state.items[0..state.item_count], 0..) |*item, i| {
+        item.x_start = x;
+        item.x_end = x + width_array[i];
         x += width_array[i];
     }
 }

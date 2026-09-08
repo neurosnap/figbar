@@ -10,9 +10,9 @@ def get_sound():
         muted = subprocess.check_output(["pamixer", "--get-mute"], text=True, stderr=subprocess.DEVNULL).strip() == "true"
         vol = subprocess.check_output(["pamixer", "--get-volume"], text=True, stderr=subprocess.DEVNULL).strip()
         label = "MUTED" if muted else "VOL"
-        return f"{label} {vol}%"
+        return f"[[vol]]{label} {vol}%"
     except Exception:
-        return "VOL ?"
+        return "[[vol]]VOL ?"
 
 def get_battery():
     if not os.path.exists("/sys/class/power_supply"):
@@ -38,7 +38,7 @@ def get_battery():
                     if f.read().strip() == "Charging":
                         status = "CHR"
 
-            return f"{status} {cap}%"
+            return f"[[bat]]{status} {cap}%"
     except Exception:
         pass
 
@@ -48,7 +48,7 @@ def get_brightness():
     try:
         act = subprocess.check_output(["brightnessctl", "-c", "backlight", "get"], text=True, stderr=subprocess.DEVNULL).strip()
         max_b = subprocess.check_output(["brightnessctl", "-c", "backlight", "max"], text=True, stderr=subprocess.DEVNULL).strip()
-        return f"BRT {int(int(act) * 100 / int(max_b))}%"
+        return f"[[brt]]BRT {int(int(act) * 100 / int(max_b))}%"
     except Exception:
         return None
 
@@ -66,20 +66,20 @@ def get_net():
     try:
         route = subprocess.check_output(["ip", "route", "show", "default"], text=True, stderr=subprocess.DEVNULL)
     except Exception:
-        return "NET Disconnected"
+        return "[[net]]NET Disconnected"
 
     if "dev" not in route:
-        return "NET Disconnected"
+        return "[[net]]NET Disconnected"
 
     iface = route.split("dev")[1].split()[0]
     if not iface.startswith(("wl", "wlan")):
-        return f"ETH {iface}"
+        return f"[[net]]ETH {iface}"
 
     ssid = get_wifi_ssid(iface)
-    return f"NET {ssid}" if ssid else f"NET {iface}"
+    return f"[[net]]NET {ssid}" if ssid else f"[[net]]NET {iface}"
 
 def get_time():
-    return time.strftime("%I:%M %m/%d").lstrip("0")
+    return f"[[time]]{time.strftime('%I:%M %m/%d').lstrip('0')}"
 
 def get_workspaces():
     try:
@@ -92,7 +92,7 @@ def get_workspaces():
         return None
 
     tags = [
-        f"^ {w['name']} ^" if w.get("focused") else f" {w['name']} "
+        f"^[[ws_{w['name']}]] {w['name']} ^" if w.get("focused") else f"[[ws_{w['name']}]] {w['name']} "
         for w in sorted(workspaces, key=lambda x: x.get("num", 0))
     ]
     return "".join(tags)
@@ -107,7 +107,65 @@ def generate_line():
 
     return f"{ws}    {right_status}"
 
+def handle_click(event):
+    key = event.get("key")
+    btn = event.get("button", 1)
+    if not key:
+        return
+
+    if key.startswith("ws_"):
+        ws_name = key[3:]
+        subprocess.run(["swaymsg", "workspace", ws_name], stderr=subprocess.DEVNULL)
+    elif key == "vol":
+        if btn == 1:
+            subprocess.run(["pamixer", "-t"], stderr=subprocess.DEVNULL)
+        elif btn == 4:
+            subprocess.run(["pamixer", "-i", "5"], stderr=subprocess.DEVNULL)
+        elif btn == 5:
+            subprocess.run(["pamixer", "-d", "5"], stderr=subprocess.DEVNULL)
+    elif key == "brt":
+        if btn == 4:
+            subprocess.run(["brightnessctl", "set", "5%+"], stderr=subprocess.DEVNULL)
+        elif btn == 5:
+            subprocess.run(["brightnessctl", "set", "5%-"], stderr=subprocess.DEVNULL)
+
+def run_bidirectional():
+    import threading
+
+    proc = subprocess.Popen(
+        ["figbar", "-b", "-r", "-f", "JetBrainsMono Nerd Font 10.5",
+         "-N", "272822", "-n", "f8f8f2", "-S", "66d9ef", "-s", "272822"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    def read_clicks():
+        for line in proc.stdout:
+            try:
+                event = json.loads(line)
+                if event.get("event") == "click":
+                    handle_click(event)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=read_clicks, daemon=True)
+    t.start()
+
+    try:
+        while proc.poll() is None:
+            proc.stdin.write(generate_line() + "\n")
+            proc.stdin.flush()
+            time.sleep(1)
+    except (BrokenPipeError, KeyboardInterrupt):
+        proc.terminate()
+
 def main():
+    if "--listen" in sys.argv:
+        run_bidirectional()
+        return
+
     try:
         while True:
             print(generate_line(), flush=True)

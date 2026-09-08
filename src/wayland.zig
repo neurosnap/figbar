@@ -10,6 +10,79 @@ const wp_vp = wp.Viewporter;
 const State = @import("state.zig");
 const render = @import("render.zig");
 
+fn emitClickEvent(state: *State, button: u32) void {
+    const px: i32 = @intFromFloat(state.pointer_x);
+    if (state.findItemAt(px)) |found| {
+        var buf: [512]u8 = undefined;
+        const msg = if (found.item.key) |k|
+            std.fmt.bufPrint(&buf, "{{\"event\":\"click\",\"key\":\"{s}\",\"index\":{d},\"button\":{d}}}\n", .{
+                k, found.index, button,
+            }) catch return
+        else
+            std.fmt.bufPrint(&buf, "{{\"event\":\"click\",\"key\":null,\"index\":{d},\"button\":{d}}}\n", .{
+                found.index, button,
+            }) catch return;
+
+        _ = std.c.write(std.posix.STDOUT_FILENO, msg.ptr, msg.len);
+    }
+}
+
+fn pointerListener(pointer: *wl.Pointer, event: wl.Pointer.Event, state: *State) void {
+    _ = pointer;
+    switch (event) {
+        .enter => |ev| {
+            state.pointer_inside = true;
+            state.pointer_x = ev.surface_x.toDouble();
+            state.pointer_y = ev.surface_y.toDouble();
+        },
+        .leave => {
+            state.pointer_inside = false;
+        },
+        .motion => |ev| {
+            state.pointer_x = ev.surface_x.toDouble();
+            state.pointer_y = ev.surface_y.toDouble();
+        },
+        .button => |ev| {
+            if (ev.state == .pressed) {
+                // ev.button is typically Linux input event code:
+                // 0x110 (272) = BTN_LEFT -> button 1
+                // 0x111 (273) = BTN_RIGHT -> button 3
+                // 0x112 (274) = BTN_MIDDLE -> button 2
+                const btn_num: u32 = switch (ev.button) {
+                    0x110 => 1, // BTN_LEFT
+                    0x111 => 3, // BTN_RIGHT
+                    0x112 => 2, // BTN_MIDDLE
+                    0x113 => 4, // BTN_SIDE
+                    0x114 => 5, // BTN_EXTRA
+                    else => ev.button,
+                };
+                emitClickEvent(state, btn_num);
+            }
+        },
+        else => {},
+    }
+}
+
+fn seatListener(seat: *wl.Seat, event: wl.Seat.Event, state: *State) void {
+    switch (event) {
+        .capabilities => |ev| {
+            if (ev.capabilities.pointer) {
+                if (state.wl_pointer == null) {
+                    const pointer = seat.getPointer() catch return;
+                    state.wl_pointer = pointer;
+                    pointer.setListener(*State, pointerListener, state);
+                }
+            } else {
+                if (state.wl_pointer) |p| {
+                    p.release();
+                    state.wl_pointer = null;
+                }
+            }
+        },
+        .name => {},
+    }
+}
+
 fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *State) void {
     switch (event) {
         .global => |global| {
@@ -19,6 +92,10 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, state: *St
                 state.wl_shm = registry.bind(global.name, wl.Shm, 1) catch return;
             } else if (std.mem.orderZ(u8, global.interface, wl.Output.interface.name) == .eq) {
                 state.wl_output = registry.bind(global.name, wl.Output, 4) catch return;
+            } else if (std.mem.orderZ(u8, global.interface, wl.Seat.interface.name) == .eq) {
+                const seat = registry.bind(global.name, wl.Seat, 5) catch return;
+                state.wl_seat = seat;
+                seat.setListener(*State, seatListener, state);
             } else if (std.mem.orderZ(u8, global.interface, zwlr.LayerShellV1.interface.name) == .eq) {
                 state.zwlr_layer_shell_v1 = registry.bind(global.name, zwlr.LayerShellV1, 4) catch return;
             } else if (std.mem.orderZ(u8, global.interface, wp_fs.interface.name) == .eq) {

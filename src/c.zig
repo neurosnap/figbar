@@ -80,6 +80,7 @@ pub const c = struct {
     pub extern "c" fn pango_cairo_show_layout(cr: ?*cairo_t, layout: ?*PangoLayout) void;
     pub extern "c" fn pango_cairo_font_map_get_default() ?*PangoFontMap;
 
+    pub extern "c" fn pango_layout_new(context: ?*PangoContext) ?*PangoLayout;
     pub extern "c" fn pango_layout_set_font_description(layout: ?*PangoLayout, desc: ?*const PangoFontDescription) void;
     pub extern "c" fn pango_layout_set_text(layout: ?*PangoLayout, text: [*]const u8, length: c_int) void;
     pub extern "c" fn pango_layout_get_pixel_size(layout: ?*PangoLayout, width: ?*c_int, height: ?*c_int) void;

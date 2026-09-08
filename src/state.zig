@@ -7,6 +7,14 @@ const c = @import("c.zig").c;
 
 pub const State = @This();
 
+pub const Item = struct {
+    key: ?[]const u8 = null,
+    text: []const u8 = "",
+    select: bool = false,
+    x_start: i32 = 0,
+    x_end: i32 = 0,
+};
+
 pub const max_items = 1024;
 
 anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true, .left = true, .right = true },
@@ -23,6 +31,8 @@ wl_registry: ?*wl.Registry = null,
 wl_compositor: ?*wl.Compositor = null,
 wl_surface: ?*wl.Surface = null,
 wl_shm: ?*wl.Shm = null,
+wl_seat: ?*wl.Seat = null,
+wl_pointer: ?*wl.Pointer = null,
 wl_output: ?*wl.Output = null,
 zwlr_layer_shell_v1: ?*zwlr.LayerShellV1 = null,
 zwlr_layer_surface_v1: ?*zwlr.LayerSurfaceV1 = null,
@@ -33,7 +43,12 @@ wp_viewport: ?*wp.Viewport = null,
 scale: f64 = 1.0,
 width: u32 = 0,
 height: u32 = 0,
-items: [max_items][]const u8 = undefined,
+pointer_x: f64 = -1.0,
+pointer_y: f64 = -1.0,
+pointer_inside: bool = false,
+line_buffer: [8192]u8 = undefined,
+line_len: usize = 0,
+items: [max_items]Item = undefined,
 item_count: usize = 0,
 
 pub fn init() State {
@@ -120,6 +135,61 @@ pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
     }
 }
 
+fn appendItemsFromSegment(state: *State, segment: []const u8, select: bool) void {
+    if (segment.len == 0) return;
+
+    var rem = segment;
+    while (rem.len > 0 and state.item_count < max_items) {
+        if (std.mem.startsWith(u8, rem, "[[")) {
+            if (std.mem.indexOf(u8, rem[2..], "]]")) |close_idx| {
+                const key = rem[2 .. 2 + close_idx];
+                const after_key = rem[2 + close_idx + 2 ..];
+                // Find next "[[" if any, which marks the start of the next item within this segment
+                const next_key_idx = std.mem.indexOf(u8, after_key, "[[") orelse after_key.len;
+                const text = after_key[0..next_key_idx];
+                state.items[state.item_count] = .{
+                    .key = key,
+                    .text = text,
+                    .select = select,
+                };
+                state.item_count += 1;
+                rem = after_key[next_key_idx..];
+                continue;
+            }
+        }
+
+        // Doesn't start with "[["
+        if (std.mem.indexOf(u8, rem, "[[")) |next_key_idx| {
+            // Text before the next "[["
+            state.items[state.item_count] = .{
+                .key = null,
+                .text = rem[0..next_key_idx],
+                .select = select,
+            };
+            state.item_count += 1;
+            rem = rem[next_key_idx..];
+        } else {
+            // Remaining text has no more "[["
+            state.items[state.item_count] = .{
+                .key = null,
+                .text = rem,
+                .select = select,
+            };
+            state.item_count += 1;
+            break;
+        }
+    }
+}
+
+pub fn findItemAt(state: *const State, x: i32) ?struct { item: Item, index: usize } {
+    for (state.items[0..state.item_count], 0..) |item, idx| {
+        if (x >= item.x_start and x < item.x_end) {
+            return .{ .item = item, .index = idx };
+        }
+    }
+    return null;
+}
+
 pub fn parse_line(state: *State, line: []const u8) !void {
     // Strip trailing newline
     var input = line;
@@ -127,29 +197,62 @@ pub fn parse_line(state: *State, line: []const u8) !void {
         input = input[0 .. input.len - 1];
     }
 
+    const copy_len = @min(input.len, state.line_buffer.len);
+    @memcpy(state.line_buffer[0..copy_len], input[0..copy_len]);
+    state.line_len = copy_len;
+    input = state.line_buffer[0..copy_len];
+
     state.item_count = 0;
 
     // Split on '^', with '\^' as an escape for a literal '^'
+    // Segments alternate: normal (select = false), selected (select = true), normal, etc.
+    var current_select = false;
     var i: usize = 0;
     var start: usize = 0;
     while (i < input.len) {
         if (input[i] == '^') {
             if (i > 0 and input[i - 1] == '\\') {
-                // escaped caret — would need in-place removal; for now just split
+                // escaped caret
                 i += 1;
                 continue;
             }
-            if (state.item_count < max_items) {
-                state.items[state.item_count] = input[start..i];
-                state.item_count += 1;
-            }
+            appendItemsFromSegment(state, input[start..i], current_select);
+            current_select = !current_select;
             start = i + 1;
         }
         i += 1;
     }
     // last segment
-    if (state.item_count < max_items) {
-        state.items[state.item_count] = input[start..];
-        state.item_count += 1;
-    }
+    appendItemsFromSegment(state, input[start..], current_select);
+}
+
+test "parse_line multiple items and carets" {
+    var state = State.init();
+    try state.parse_line("[[ws_1]] 1 [[ws_2]] 2 ^[[ws_3]] 3 ^  |  [[vol]]VOL 100%");
+
+    // Item 0: key="ws_1", text=" 1 ", select=false
+    try std.testing.expectEqual(@as(usize, 5), state.item_count);
+    try std.testing.expectEqualStrings("ws_1", state.items[0].key.?);
+    try std.testing.expectEqualStrings(" 1 ", state.items[0].text);
+    try std.testing.expectEqual(false, state.items[0].select);
+
+    // Item 1: key="ws_2", text=" 2 ", select=false
+    try std.testing.expectEqualStrings("ws_2", state.items[1].key.?);
+    try std.testing.expectEqualStrings(" 2 ", state.items[1].text);
+    try std.testing.expectEqual(false, state.items[1].select);
+
+    // Item 2: key="ws_3", text=" 3 ", select=true
+    try std.testing.expectEqualStrings("ws_3", state.items[2].key.?);
+    try std.testing.expectEqualStrings(" 3 ", state.items[2].text);
+    try std.testing.expectEqual(true, state.items[2].select);
+
+    // Item 3: key=null, text="  |  ", select=false
+    try std.testing.expect(state.items[3].key == null);
+    try std.testing.expectEqualStrings("  |  ", state.items[3].text);
+    try std.testing.expectEqual(false, state.items[3].select);
+
+    // Item 4: key="vol", text="VOL 100%", select=false
+    try std.testing.expectEqualStrings("vol", state.items[4].key.?);
+    try std.testing.expectEqualStrings("VOL 100%", state.items[4].text);
+    try std.testing.expectEqual(false, state.items[4].select);
 }

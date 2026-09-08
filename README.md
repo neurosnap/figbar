@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="figbar.png" alt="figbar" width="220" />
+  <img src="figbar.png" alt="figbar" width="160" />
 </p>
 
 <h1 align="center">figbar</h1>

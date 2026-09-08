@@ -17,7 +17,7 @@ It requires the `zwlr_layer_shell_v1` protocol and works on any Wayland composit
 Use stdin to pass text for display.
 Use `^` to highlight text (can be escaped with a backslash `\^`).
 
-### interactive Click Events
+### click events
 
 Items can specify an optional identifier using `[[key]]` syntax at the start of any segment (e.g. `[[vol]] 50%` or `[[ws_1]] [1]`). The `[[key]]` tag is hidden from rendering.
 

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="figbar.webp" alt="figbar" />
+  <img src="figbar.webp" alt="figbar" width="360" />
 </p>
 
 <h1 align="center">figbar</h1>

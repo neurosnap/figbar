@@ -1,6 +1,12 @@
-# figbar
+<p align="center">
+  <img src="figbar.webp" alt="figbar" />
+</p>
 
-A minimal, duo-tone status bar for Wayland compositors with native fractional scaling support.
+<h1 align="center">figbar</h1>
+
+<p align="center">
+  A minimal, duo-tone status bar for Wayland compositors with native fractional scaling support.
+</p>
 
 It requires the `zwlr_layer_shell_v1` protocol and works on any Wayland compositor supporting `wlr-layer-shell` (e.g. Sway, Hyprland, River, Wayfire, labwc, niri, etc.).
 

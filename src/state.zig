@@ -12,6 +12,7 @@ pub const max_items = 1024;
 anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true },
 valign: zwlr.LayerSurfaceV1.Anchor = .{ .left = true },
 font: []const u8 = "monospace 16",
+font_desc: ?*c.PangoFontDescription = null,
 normal_bg: u32 = 0x000000ff,
 select_bg: u32 = 0xffffffff,
 normal_fg: u32 = 0xffffffff,
@@ -39,15 +40,17 @@ pub fn init() State {
     return .{};
 }
 
-fn getFontHeight(fontname: []const u8) u32 {
-    var buf: [256]u8 = undefined;
-    const font_z = std.fmt.bufPrintZ(&buf, "{s}", .{fontname}) catch return 16;
+pub fn deinit(state: *State) void {
+    if (state.font_desc) |desc| {
+        c.pango_font_description_free(desc);
+        state.font_desc = null;
+    }
+}
 
+fn getFontHeight(desc: *const c.PangoFontDescription) u32 {
     const fontmap = c.pango_cairo_font_map_get_default();
     const ctx = c.pango_font_map_create_context(fontmap);
     defer c.g_object_unref(ctx);
-    const desc = c.pango_font_description_from_string(font_z.ptr);
-    defer c.pango_font_description_free(desc);
     const font = c.pango_font_map_load_font(fontmap, ctx, desc);
     defer c.g_object_unref(font);
     const metrics = c.pango_font_get_metrics(font, null);
@@ -105,9 +108,15 @@ pub fn parse_args(state: *State, arg_iter: *std.process.Args.Iterator) !void {
         }
     }
 
+    // Parse and cache the Pango font description
+    var font_buf: [256]u8 = undefined;
+    const font_z = std.fmt.bufPrintZ(&font_buf, "{s}", .{state.font}) catch return error.FontNameTooLong;
+    const desc = c.pango_font_description_from_string(font_z.ptr) orelse return error.InvalidFont;
+    state.font_desc = desc;
+
     // derive height from font metrics if not set
     if (state.height == 0) {
-        state.height = getFontHeight(state.font) + 2;
+        state.height = getFontHeight(desc) + 2;
     }
 }
 

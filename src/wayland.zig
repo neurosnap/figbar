@@ -138,7 +138,7 @@ pub fn create_buffer(state: *State) !*wl.Buffer {
     const buf_height: i32 = @intFromFloat(@as(f64, @floatFromInt(state.height)) * state.scale + 0.5);
     if (buf_width <= 0 or buf_height <= 0) return error.InvalidSize;
 
-    const stride = buf_width * 4;
+    const stride: i32 = render.getStride(buf_width);
     const size: usize = @intCast(stride * buf_height);
 
     const fd = try allocateShmFile(size);

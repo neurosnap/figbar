@@ -8,6 +8,7 @@ pub fn main(init: std.process.Init) !void {
     var iter = args.iterate();
     var state: State = .init();
     try state.parse_args(&iter);
+    defer state.deinit();
     try wayland_init(&state);
     const display = state.wl_display.?;
 

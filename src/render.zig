@@ -15,6 +15,11 @@ fn cairoSetSourceU32(cairo: *c.cairo_t, color: u32) void {
     );
 }
 
+/// Returns the byte stride for an ARGB32 buffer of the given pixel width according to Cairo's alignment rules.
+pub fn getStride(buf_width: i32) i32 {
+    return c.cairo_format_stride_for_width(c.CAIRO_FORMAT_ARGB32, buf_width);
+}
+
 /// Renders the current state (background and item text) directly into the shared memory
 /// pixel buffer backing a Wayland wl_buffer.
 ///
@@ -34,8 +39,8 @@ pub fn render(data: []u8, state: *State) void {
     const buf_height: c_int = @intFromFloat(@as(f64, @floatFromInt(state.height)) * state.scale + 0.5);
     if (buf_width <= 0 or buf_height <= 0) return;
 
-    // 4 bytes per pixel for 32-bit ARGB (8 bits per channel)
-    const stride = buf_width * 4;
+    // Use Cairo's standard stride calculation for ARGB32
+    const stride = getStride(buf_width);
 
     // Wrap the existing Wayland shared memory buffer into a Cairo image surface
     const surface = c.cairo_image_surface_create_for_data(
@@ -51,6 +56,11 @@ pub fn render(data: []u8, state: *State) void {
     const cairo = c.cairo_create(surface) orelse return;
     defer c.cairo_destroy(cairo);
 
+    // Clear the buffer first to prevent translucent/transparent backgrounds from blending over garbage memory
+    c.cairo_set_operator(cairo, c.CAIRO_OPERATOR_CLEAR);
+    c.cairo_paint(cairo);
+    c.cairo_set_operator(cairo, c.CAIRO_OPERATOR_OVER);
+
     // Scale coordinate space by the HiDPI factor so all subsequent drawing uses logical pixels
     c.cairo_scale(cairo, state.scale, state.scale);
     c.cairo_set_antialias(cairo, c.CAIRO_ANTIALIAS_BEST);
@@ -63,17 +73,14 @@ pub fn render(data: []u8, state: *State) void {
     const layout = c.pango_cairo_create_layout(cairo);
     defer c.g_object_unref(layout);
 
-    // Pango expects a null-terminated font description string (e.g. "monospace 16")
-    var font_buf: [256]u8 = undefined;
-    const font_z = std.fmt.bufPrintZ(&font_buf, "{s}", .{state.font}) catch "monospace 16";
-    const desc = c.pango_font_description_from_string(font_z.ptr);
-    c.pango_layout_set_font_description(layout, desc);
-    c.pango_font_description_free(desc);
+    if (state.font_desc) |desc| {
+        c.pango_layout_set_font_description(layout, desc);
+    }
 
     // First pass: measure text width of every item and compute total combined width
     var width_array: [State.max_items]c_int = undefined;
     var total_width: c_int = 0;
-    var text_height: c_int = 0;
+    var max_text_height: c_int = 0;
 
     for (state.items[0..state.item_count], 0..) |item, i| {
         var w: c_int = 0;
@@ -82,7 +89,7 @@ pub fn render(data: []u8, state: *State) void {
         c.pango_layout_get_pixel_size(layout, &w, &h);
         width_array[i] = w;
         total_width += w;
-        text_height = h;
+        if (h > max_text_height) max_text_height = h;
     }
 
     // Set starting X coordinate depending on horizontal alignment (-r flag)
@@ -90,6 +97,8 @@ pub fn render(data: []u8, state: *State) void {
         @as(c_int, @intCast(state.width)) - total_width
     else
         0;
+
+    const y = @divTrunc(@as(c_int, @intCast(state.height)) - max_text_height, 2);
 
     // Second pass: render each item, alternating styles (normal vs selected highlight)
     var select = false;
@@ -111,8 +120,6 @@ pub fn render(data: []u8, state: *State) void {
             cairoSetSourceU32(cairo, state.normal_fg);
         }
 
-        // Vertically center the text within the bar height
-        const y = @divTrunc(@as(c_int, @intCast(state.height)) - text_height, 2);
         c.cairo_move_to(cairo, @floatFromInt(x), @floatFromInt(y));
         c.pango_cairo_show_layout(cairo, layout);
 

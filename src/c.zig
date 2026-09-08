@@ -24,7 +24,27 @@ pub const c = struct {
     };
     pub const CAIRO_ANTIALIAS_BEST = cairo_antialias_t.BEST;
 
+    pub const cairo_operator_t = enum(c_int) {
+        CLEAR = 0,
+        SRC = 1,
+        OVER = 2,
+        IN = 3,
+        OUT = 4,
+        ATOP = 5,
+        DEST = 6,
+        DEST_OVER = 7,
+        DEST_IN = 8,
+        DEST_OUT = 9,
+        DEST_ATOP = 10,
+        XOR = 11,
+        ADD = 12,
+        SATURATE = 13,
+    };
+    pub const CAIRO_OPERATOR_CLEAR = cairo_operator_t.CLEAR;
+    pub const CAIRO_OPERATOR_OVER = cairo_operator_t.OVER;
+
     // Cairo functions
+    pub extern "c" fn cairo_format_stride_for_width(format: cairo_format_t, width: c_int) c_int;
     pub extern "c" fn cairo_image_surface_create_for_data(
         data: [*]u8,
         format: cairo_format_t,
@@ -39,6 +59,7 @@ pub const c = struct {
 
     pub extern "c" fn cairo_scale(cr: ?*cairo_t, sx: f64, sy: f64) void;
     pub extern "c" fn cairo_set_antialias(cr: ?*cairo_t, antialias: cairo_antialias_t) void;
+    pub extern "c" fn cairo_set_operator(cr: ?*cairo_t, op: cairo_operator_t) void;
     pub extern "c" fn cairo_set_source_rgba(cr: ?*cairo_t, red: f64, green: f64, blue: f64, alpha: f64) void;
     pub extern "c" fn cairo_paint(cr: ?*cairo_t) void;
     pub extern "c" fn cairo_rectangle(cr: ?*cairo_t, x: f64, y: f64, width: f64, height: f64) void;

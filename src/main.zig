@@ -28,13 +28,15 @@ pub fn main(init: std.process.Init) !void {
                 vp.setDestination(@intCast(state.width), @intCast(state.height));
             }
 
-            const buffer = create_buffer(&state) catch null;
-            if (state.wl_surface) |surf| {
-                if (buffer) |buf| {
-                    surf.attach(buf, 0, 0);
-                    surf.damageBuffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+            if (state.width > 0) {
+                const buffer = create_buffer(&state) catch null;
+                if (state.wl_surface) |surf| {
+                    if (buffer) |buf| {
+                        surf.attach(buf, 0, 0);
+                        surf.damageBuffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+                    }
+                    surf.commit();
                 }
-                surf.commit();
             }
         } else {
             break; // EOF

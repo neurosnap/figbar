@@ -9,7 +9,7 @@ pub const State = @This();
 
 pub const max_items = 1024;
 
-anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true },
+anchor: zwlr.LayerSurfaceV1.Anchor = .{ .top = true, .left = true, .right = true },
 valign: zwlr.LayerSurfaceV1.Anchor = .{ .left = true },
 font: []const u8 = "monospace 16",
 font_desc: ?*c.PangoFontDescription = null,

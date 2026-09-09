@@ -1,7 +1,9 @@
 const std = @import("std");
 const State = @import("state.zig");
-const wayland_init = @import("wayland.zig").wayland_init;
-const create_buffer = @import("wayland.zig").create_buffer;
+const wayland = @import("wayland.zig");
+const wayland_init = wayland.wayland_init;
+const createSurface = wayland.createSurface;
+const create_buffer = wayland.create_buffer;
 
 pub fn main(init: std.process.Init) !void {
     const args = init.minimal.args;
@@ -56,11 +58,15 @@ pub fn main(init: std.process.Init) !void {
                     const line = line_buf[0..nl_idx];
                     try state.parse_line(line);
 
+                    if (state.wl_surface == null) {
+                        createSurface(&state) catch {};
+                    }
+
                     if (state.wp_viewport) |vp| {
                         vp.setDestination(@intCast(state.width), @intCast(state.height));
                     }
 
-                    if (state.width > 0) {
+                    if (state.configured and state.width > 0) {
                         const buffer = create_buffer(&state) catch null;
                         if (state.wl_surface) |surf| {
                             if (buffer) |buf| {

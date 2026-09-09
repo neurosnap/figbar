@@ -123,6 +123,67 @@ fn fractionalScaleListener(
     }
 }
 
+fn destroySurface(state: *State) void {
+    state.configured = false;
+    if (state.zwlr_layer_surface_v1) |ls| {
+        ls.destroy();
+        state.zwlr_layer_surface_v1 = null;
+    }
+    if (state.wp_viewport) |vp| {
+        vp.destroy();
+        state.wp_viewport = null;
+    }
+    if (state.wp_fraction_scale_v1) |fs| {
+        fs.destroy();
+        state.wp_fraction_scale_v1 = null;
+    }
+    if (state.wl_surface) |surf| {
+        surf.destroy();
+        state.wl_surface = null;
+    }
+}
+
+pub fn createSurface(state: *State) !void {
+    destroySurface(state);
+
+    const compositor = state.wl_compositor orelse return error.MissingWaylandCompositor;
+    const layer_shell = state.zwlr_layer_shell_v1 orelse return error.MissingLayerShell;
+
+    const surface = try compositor.createSurface();
+    state.wl_surface = surface;
+
+    if (state.wp_fractional_scale_manager_v1) |wpfs| {
+        const fs = try wpfs.getFractionalScale(surface);
+        state.wp_fraction_scale_v1 = fs;
+        fs.setListener(*State, fractionalScaleListener, state);
+    }
+
+    if (state.wp_viewporter) |vp| {
+        state.wp_viewport = try vp.getViewport(surface);
+    }
+
+    const ls = try layer_shell.getLayerSurface(
+        surface,
+        null, // Pass null so compositor assigns to the active output
+        .top,
+        "figbar",
+    );
+    state.zwlr_layer_surface_v1 = ls;
+    ls.setAnchor(state.anchor);
+    ls.setSize(state.width, state.height);
+    ls.setExclusiveZone(@intCast(state.height));
+    ls.setListener(*State, layerSurfaceListener, state);
+
+    assert(state.wl_display != null);
+    assert(state.wl_surface != null);
+    assert(state.zwlr_layer_surface_v1 != null);
+    if (state.wp_fraction_scale_v1 != null) {
+        assert(state.wp_viewport != null);
+    }
+
+    surface.commit();
+}
+
 fn layerSurfaceListener(
     ls: *zwlr.LayerSurfaceV1,
     event: zwlr.LayerSurfaceV1.Event,
@@ -130,6 +191,7 @@ fn layerSurfaceListener(
 ) void {
     switch (event) {
         .configure => |ev| {
+            state.configured = true;
             ls.ackConfigure(ev.serial);
             assert(state.wl_surface != null);
             // ev.width and ev.height are the compositor-assigned dimensions (0 means client decides)
@@ -149,7 +211,8 @@ fn layerSurfaceListener(
             }
         },
         .closed => {
-            // compositor is removing our surface
+            // compositor is removing our surface (e.g. output disabled on laptop lid close)
+            destroySurface(state);
         },
     }
 }
@@ -166,43 +229,11 @@ pub fn wayland_init(state: *State) !void {
     registry.setListener(*State, registryListener, state);
     _ = display.roundtrip();
 
-    const compositor = state.wl_compositor orelse return error.MissingWaylandCompositor;
+    _ = state.wl_compositor orelse return error.MissingWaylandCompositor;
     _ = state.wl_shm orelse return error.MissingWaylandShm;
-    const layer_shell = state.zwlr_layer_shell_v1 orelse return error.MissingLayerShell;
+    _ = state.zwlr_layer_shell_v1 orelse return error.MissingLayerShell;
 
-    const surface = try compositor.createSurface();
-    state.wl_surface = surface;
-    if (state.wp_fractional_scale_manager_v1) |wpfs| {
-        const fs = try wpfs.getFractionalScale(surface);
-        state.wp_fraction_scale_v1 = fs;
-        fs.setListener(*State, fractionalScaleListener, state);
-    }
-
-    if (state.wp_viewporter) |vp| {
-        state.wp_viewport = try vp.getViewport(surface);
-    }
-
-    const ls = try layer_shell.getLayerSurface(
-        surface,
-        state.wl_output,
-        .top,
-        "figbar",
-    );
-    state.zwlr_layer_surface_v1 = ls;
-    ls.setAnchor(state.anchor);
-    ls.setSize(state.width, state.height);
-    ls.setExclusiveZone(@intCast(state.height));
-    ls.setListener(*State, layerSurfaceListener, state);
-
-    // Invariants: required Wayland objects must be fully configured before committing
-    assert(state.wl_display != null);
-    assert(state.wl_surface != null);
-    assert(state.zwlr_layer_surface_v1 != null);
-    if (state.wp_fraction_scale_v1 != null) {
-        assert(state.wp_viewport != null);
-    }
-
-    surface.commit();
+    try createSurface(state);
     _ = display.roundtrip();
 }
 

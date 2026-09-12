@@ -62,11 +62,11 @@ pub fn main(init: std.process.Init) !void {
                         createSurface(&state) catch {};
                     }
 
-                    if (state.wp_viewport) |vp| {
-                        vp.setDestination(@intCast(state.width), @intCast(state.height));
-                    }
-
                     if (state.configured and state.width > 0) {
+                        if (state.wp_viewport) |vp| {
+                            vp.setDestination(@intCast(state.width), @intCast(state.height));
+                        }
+
                         const buffer = create_buffer(&state) catch null;
                         if (state.wl_surface) |surf| {
                             if (buffer) |buf| {

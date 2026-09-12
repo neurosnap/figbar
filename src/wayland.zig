@@ -125,6 +125,7 @@ fn fractionalScaleListener(
 
 fn destroySurface(state: *State) void {
     state.configured = false;
+    state.width = 0;
     if (state.zwlr_layer_surface_v1) |ls| {
         ls.destroy();
         state.zwlr_layer_surface_v1 = null;
@@ -170,7 +171,7 @@ pub fn createSurface(state: *State) !void {
     );
     state.zwlr_layer_surface_v1 = ls;
     ls.setAnchor(state.anchor);
-    ls.setSize(state.width, state.height);
+    ls.setSize(0, state.height);
     ls.setExclusiveZone(@intCast(state.height));
     ls.setListener(*State, layerSurfaceListener, state);
 
